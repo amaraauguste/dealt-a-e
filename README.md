@@ -1,4 +1,4 @@
-# DEALT-a-E — Color Difference Solitaire
+# DEALT-A-E — Color Difference Solitaire
 
 A standalone browser game prototype based on the supplied DEALT-a-E wireframes. It includes four levels, solitaire-style stock/current-card interaction with click-to-place and drag-and-drop, a six-round mystery-hex loop, scoring, selectable ΔE76 / CIEDE2000 formulas, approximate vision simulation modes, and a research comparison panel.
 
