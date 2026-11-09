@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>DEALT-A-E — Color Difference Solitaire</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body class="home">
+    <main class="home-shell">
+      <div class="eyebrow">✦ A COLOR SCIENCE CARD GAME ✦</div>
+      <div class="logo-mark"><span>Δ</span><span>E</span></div>
+      <h1>DEALT-A-E</h1>
+      <p class="subtitle">Color Difference Solitaire</p>
+      <p class="intro">
+        Deal, compare, and discover how close two colors really are.
+      </p>
+      <div class="home-actions main-menu-actions">
+        <button class="button primary play-button" id="levels-open">
+          ▶ &nbsp; Play / Select Level</button
+        ><button class="button secondary" id="instructions-open">
+          How to play</button
+        ><button class="button secondary" id="research-open">
+          Research & color settings
+        </button>
+      </div>
+      <dialog id="levels-menu" class="levels-dialog">
+        <form method="dialog">
+          <div class="levels-heading">
+            <div>
+              <p class="eyebrow">YOUR ADVENTURE</p>
+              <h2>Select a Level</h2>
+              <p class="levels-intro">
+                Complete each level to unlock the next challenge.
+              </p>
+            </div>
+            <button class="dialog-close" aria-label="Close level menu">
+              ×
+            </button>
+          </div>
+          <section class="level-grid" aria-label="Choose a level">
+            <a class="level-card" data-level="1" href="level1.html"
+              ><span class="level-number">01</span
+              ><span class="level-icon">♡</span><strong>Single Match</strong
+              ><small>Find the closest color</small></a
+            ><a class="level-card" data-level="2" href="level2.html"
+              ><span class="level-number">02</span
+              ><span class="level-icon">✿</span><strong>Color Families</strong
+              ><small>Match three target colors</small></a
+            ><a class="level-card" data-level="3" href="level3.html"
+              ><span class="level-number">03</span
+              ><span class="level-icon">〰</span><strong>Gradient Bridge</strong
+              ><small>Order colors between anchors</small></a
+            ><a class="level-card" data-level="4" href="level4.html"
+              ><span class="level-number">04</span
+              ><span class="level-icon">▦</span><strong>Color Matrix</strong
+              ><small>Build a connected 3 × 3 grid</small></a
+            >
+          </section>
+          <p class="level-legend">
+            <span>✦ Unlocked</span
+            ><span>🔒 Locked until previous level is complete</span>
+          </p>
+        </form>
+      </dialog>
+      <div class="home-actions" style="display: none"></div>
+      <p class="fine-print">
+        Designed for play and exploration — color appearance varies by display
+        and viewer.
+      </p>
+    </main>
+    <dialog id="instructions">
+      <form method="dialog">
+        <button class="dialog-close" aria-label="Close">×</button>
+        <h2>How to play ✨</h2>
+        <ol>
+          <li>Start at Level 1. Complete each level to unlock the next one.</li>
+          <li>
+            Draw cards from the stock and click or drag a card into a slot.
+          </li>
+          <li>
+            Use <b>Validate</b> to check your arrangement. You can rearrange
+            cards before validating.
+          </li>
+          <li>
+            Each level has six rounds. Complete the rounds to reveal a mystery
+            hex color, then identify it from a lineup.
+          </li>
+          <li>
+            Every reshuffle and failed validation affects your score. Drawing
+            cards does not cost points.
+          </li>
+        </ol>
+        <p>
+          <b>ΔE:</b> a numerical estimate of color difference. ΔE76 and
+          CIEDE2000 (ΔE00) are different formulas and can rank pairs
+          differently.
+        </p>
+        <button class="button primary">Got it!</button>
+      </form>
+    </dialog>
+    <dialog id="research">
+      <form method="dialog">
+        <button class="dialog-close" aria-label="Close">×</button>
+        <h2>Color & vision settings</h2>
+        <p>
+          Choose settings on a level screen. Vision simulations are
+          approximations, not diagnostic or exact representations of an
+          individual's vision.
+        </p>
+        <p>
+          <b>Research panel:</b> compare ΔE76 and ΔE00 rankings, and review run
+          statistics. Local settings are stored only in this browser.
+        </p>
+        <button class="button primary">Got it!</button>
+      </form>
+    </dialog>
+  </body>
+  <script>
+    document.getElementById("levels-open").onclick = () =>
+      document.getElementById("levels-menu").showModal();
+    for (const [b, d] of [
+      ["instructions-open", "instructions"],
+      ["research-open", "research"],
+    ])
+      document.getElementById(b).onclick = () =>
+        document.getElementById(d).showModal();
+    document.querySelectorAll(".level-card").forEach((card) => {
+      const n = Number(card.dataset.level);
+      let unlocked = 1;
+      try {
+        unlocked = Math.max(
+          1,
+          Number(localStorage.getItem("dealtae-unlocked-level") || 1),
+        );
+      } catch (e) {}
+      if (n > unlocked) {
+        card.classList.add("locked");
+        card.setAttribute("aria-disabled", "true");
+        card.setAttribute("tabindex", "-1");
+        card.removeAttribute("href");
+        card.querySelector("small").textContent =
+          "🔒 Complete Level " + (n - 1) + " to unlock";
+        card.querySelector(".level-icon").textContent = "🔒";
+      } else {
+        card.classList.remove("locked");
+        card.querySelector(".level-number").textContent =
+          n === unlocked ? "0" + n + " · OPEN" : "0" + n + " · ✓";
+      }
+    });
+  </script>
+</html>
