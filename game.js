@@ -1,82 +1,998 @@
 (() => {
-'use strict';
-const root=document.getElementById('game'); if(!root)return;
-const level=Number(root.dataset.level)||1, $=id=>document.getElementById(id);
-if(level>=2){const board=$('board'),toggle=$('research-toggle'),panel=$('research-panel');if(board&&toggle&&panel){const corner=document.createElement('div');corner.className='delta-info-corner';corner.append(toggle,panel);board.append(corner);toggle.textContent='ΔE info ⓘ';toggle.setAttribute('aria-label','Show color difference information');panel.querySelector('h3').textContent='Color difference (ΔE)';}}
-let highestUnlocked=1;try{highestUnlocked=Math.max(1,Number(localStorage.getItem('dealtae-unlocked-level')||1))}catch(e){}
-if(level>highestUnlocked){location.replace('index.html');return;}
-const state={round:1,score:0,reshuffles:0,failures:0,deck:[],discard:[],candidates:[],selected:null,placements:[],lockedSlots:[],targets:[],correct:null,mystery:'',revealed:[],roundFailed:false,roundReshuffles:0,finished:false,finalChoice:null,runLog:[]};
-const names={1:'Single Match',2:'Color Families',3:'Gradient Bridge',4:'Color Matrix'};
-const rand=(a,b)=>Math.floor(Math.random()*(b-a+1))+a; const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-function rgb(hex){hex=hex.replace('#','');return [parseInt(hex.slice(0,2),16),parseInt(hex.slice(2,4),16),parseInt(hex.slice(4,6),16)]}
-function hex(a){return '#'+a.map(v=>Math.round(clamp(v,0,255)).toString(16).padStart(2,'0')).join('').toUpperCase()}
-function randomHex(){return hex([rand(0,255),rand(0,255),rand(0,255)])}
-function lab(h){let [r,g,b]=rgb(h).map(v=>v/255).map(v=>v<=.04045?v/12.92:Math.pow((v+.055)/1.055,2.4));let x=(r*.4124+g*.3576+b*.1805)/.95047,y=(r*.2126+g*.7152+b*.0722),z=(r*.0193+g*.1192+b*.9505)/1.08883;const f=t=>t>.008856?Math.cbrt(t):7.787*t+16/116;let fx=f(x),fy=f(y),fz=f(z);return [116*fy-16,500*(fx-fy),200*(fy-fz)]}
-function de76(h1,h2){let a=lab(h1),b=lab(h2);return Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2])}
-// CIEDE2000 implementation (Sharma et al. formulation).
-function de00(h1,h2){let [L1,a1,b1]=lab(h1),[L2,a2,b2]=lab(h2);let C1=Math.hypot(a1,b1),C2=Math.hypot(a2,b2),Cm=(C1+C2)/2,G=.5*(1-Math.sqrt(Math.pow(Cm,7)/(Math.pow(Cm,7)+Math.pow(25,7))));let ap1=(1+G)*a1,ap2=(1+G)*a2,Cp1=Math.hypot(ap1,b1),Cp2=Math.hypot(ap2,b2);const hue=(a,b)=>{let h=Math.atan2(b,a)*180/Math.PI;return h<0?h+360:h};let hp1=hue(ap1,b1),hp2=hue(ap2,b2);let dL=L2-L1,dC=Cp2-Cp1,dh;if(Cp1*Cp2===0)dh=0;else if(Math.abs(hp2-hp1)<=180)dh=hp2-hp1;else if(hp2-hp1>180)dh=hp2-hp1-360;else dh=hp2-hp1+360;let dH=2*Math.sqrt(Cp1*Cp2)*Math.sin(dh*Math.PI/360),Lm=(L1+L2)/2,Cpm=(Cp1+Cp2)/2;let hm;if(Cp1*Cp2===0)hm=hp1+hp2;else if(Math.abs(hp1-hp2)<=180)hm=(hp1+hp2)/2;else if(hp1+hp2<360)hm=(hp1+hp2+360)/2;else hm=(hp1+hp2-360)/2;let T=1-.17*Math.cos((hm-30)*Math.PI/180)+.24*Math.cos(2*hm*Math.PI/180)+.32*Math.cos((3*hm+6)*Math.PI/180)-.20*Math.cos((4*hm-63)*Math.PI/180);let SL=1+.015*Math.pow(Lm-50,2)/Math.sqrt(20+Math.pow(Lm-50,2)),SC=1+.045*Cpm,SH=1+.015*Cpm*T;let dTheta=30*Math.exp(-Math.pow((hm-275)/25,2)),RC=2*Math.sqrt(Math.pow(Cpm,7)/(Math.pow(Cpm,7)+Math.pow(25,7))),RT=-RC*Math.sin(2*dTheta*Math.PI/180);return Math.sqrt(Math.pow(dL/SL,2)+Math.pow(dC/SC,2)+Math.pow(dH/SH,2)+RT*(dC/SC)*(dH/SH))}
-function distance(a,b,formula=$('formula').value){return formula==='de00'?de00(a,b):de76(a,b)}
-function mix(a,b,t){let x=rgb(a),y=rgb(b);return hex(x.map((v,i)=>v+(y[i]-v)*t))}
-function makeCard(color,id){return {id:id||Math.random().toString(36).slice(2),color}}
-function shuffle(a){for(let i=a.length-1;i>0;i--){let j=rand(0,i);[a[i],a[j]]=[a[j],a[i]]}return a}
-function cardEl(card,opts={}){let el=document.createElement('button');el.type='button';el.className='color-card'+(state.selected===card.id?' chosen':'');el.draggable=true;el.dataset.cardId=card.id;el.setAttribute('aria-label',`Color card ${card.color}`);el.innerHTML=`<span class="swatch" style="background:${card.color}"></span><span class="color-meta">${opts.showHex?card.color:'COLOR CARD'}</span>`;el.addEventListener('click',()=>selectCard(card));el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selectCard(card)}});el.addEventListener('dragstart',e=>{state.selected=card.id;e.dataTransfer.setData('text/plain',card.id);setFeedback('Card picked up — drop it into a slot.','')});return el}
-function selectCard(card){state.selected=card.id;document.querySelectorAll('.color-card').forEach(e=>e.classList.toggle('chosen',e.dataset.cardId===card.id));setFeedback(`Selected ${card.color}. Now click a slot.`, '')}
-function cardById(id){return [...state.deck,...state.discard,...state.placements.filter(Boolean)].find(c=>c&&c.id===id)}
-function allRoundCards(){const byId=new Map();[...state.deck,...state.discard,...state.placements.filter(Boolean)].forEach(c=>{if(c)byId.set(c.id,c)});return [...byId.values()]}
-function setFeedback(msg,type=''){let f=$('feedback');f.textContent=msg;f.className='feedback '+type}
-function renderHex(){let h=$('hex-chips');h.innerHTML='';let prefix=document.createElement('span');prefix.className='hex-prefix';prefix.textContent='#';h.append(prefix);for(let i=0;i<6;i++){let d=document.createElement('span');d.className='hex-chip'+(state.revealed[i]?' revealed':'');d.textContent=state.revealed[i]||'＿';d.setAttribute('aria-label',`Hexadecimal character ${i+1}: ${state.revealed[i]||'not revealed'}`);h.append(d)}$('progress-fill').style.width=(state.revealed.length/6*100)+'%'}
-function stats(){ $('score').textContent=state.score; $('reshuffles').textContent=state.reshuffles; $('failures').textContent=state.failures; $('stock-stat').textContent=state.deck.length; $('round-label').textContent=Math.min(state.round,6);renderHex() }
-function addSlot(parent,label,index,filled=null,accept=()=>{}){let locked=level===2&&!!state.lockedSlots[index];let slot=document.createElement('div');slot.setAttribute('role','button');slot.tabIndex=0;slot.className='slot'+(filled?' filled':'')+(locked?' locked':'');slot.dataset.slot=index;slot.innerHTML=`<small>${label}${locked?' · ✓ LOCKED':''}</small>`;if(filled){let card=cardEl(filled,{showHex:true});if(locked){card.disabled=true;card.draggable=false;card.title='Correct match locked in place'}slot.append(card)}else slot.insertAdjacentHTML('beforeend','<span class="mini-note">Drop or click</span>');slot.addEventListener('click',()=>{if(locked)return;if(state.selected){let c=cardById(state.selected);if(c)accept(c,index)}else if(filled)selectCard(filled)});slot.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();if(locked)return;if(state.selected){let c=cardById(state.selected);if(c)accept(c,index)}else if(filled)selectCard(filled)}});slot.addEventListener('dragover',e=>{if(locked)return;e.preventDefault();slot.style.background='#f4e8ff'});slot.addEventListener('dragleave',()=>slot.style.background='');slot.addEventListener('drop',e=>{e.preventDefault();slot.style.background='';if(locked)return;let c=cardById(e.dataTransfer.getData('text/plain')||state.selected);if(c)accept(c,index)});parent.append(slot);return slot}
-function getCards(count,target,spread){let out=[];for(let i=0;i<count;i++){let color;if(i===0)color=mix(target,randomHex(),spread*.16);else {let base=rgb(target),amt=spread*(.35+Math.random()*.9);color=hex(base.map(v=>v+rand(-amt,amt)))}out.push(makeCard(color))}return out}
-function getGuaranteedMatchDeck(target,count,spread){const base=rgb(target);let near=null,nearD=Infinity;for(let tries=0;tries<80;tries++){let delta=rand(1,3),channel=rand(0,2),sign=rand(0,1)?1:-1,arr=base.slice();arr[channel]=clamp(arr[channel]+delta*sign,0,255);const candidate=hex(arr),d=Math.max(distance(candidate,target,'de76'),distance(candidate,target,'de00'));if(d>0&&d<nearD){near=candidate;nearD=d}}if(!near){near=hex(base.map((v,i)=>clamp(v+(i===0?1:0),0,255)));nearD=Math.max(distance(near,target,'de76'),distance(near,target,'de00'))}const out=[makeCard(near)];const maxD=spread==='easy'?65:spread==='challenge'?18:38;let tries=0;while(out.length<count&&tries<5000){tries++;let amt=spread==='easy'?rand(12,90):spread==='challenge'?rand(3,24):rand(6,48);let candidate=hex(base.map(v=>clamp(v+rand(-amt,amt),0,255)));let d76=distance(candidate,target,'de76'),d00=distance(candidate,target,'de00');if(Math.min(d76,d00)>nearD+.15&&Math.max(d76,d00)<=maxD)out.push(makeCard(candidate))}while(out.length<count){let candidate=randomHex();if(distance(candidate,target,'de76')>nearD+.15&&distance(candidate,target,'de00')>nearD+.15)out.push(makeCard(candidate))}return shuffle(out)}
-function makeSeparatedTargets(count,minSeparation){const targets=[];let tries=0;while(targets.length<count&&tries<10000){tries++;const candidate=randomHex();if(targets.every(t=>distance(candidate,t,'de76')>minSeparation&&distance(candidate,t,'de00')>minSeparation))targets.push(candidate)}while(targets.length<count){let candidate=randomHex();if(!targets.includes(candidate))targets.push(candidate)}return targets}
-function setupRound(){state.deck=[];state.discard=[];state.candidates=[];state.placements=[];state.lockedSlots=[];state.targets=[];state.selected=null;state.roundFailed=false;state.roundReshuffles=0;state.finished=false;state.finalChoice=null;if(!state.mystery)state.mystery=randomHex();let difficulty=$('difficulty').value;let spread=difficulty==='easy'?35:difficulty==='challenge'?9:20;
-if(level===1){let target=randomHex();state.targets=[target];state.deck=getGuaranteedMatchDeck(target,5,difficulty);state.correct=state.deck.reduce((best,c)=>!best||distance(c.color,target)<distance(best.color,target)?c:best,null);}
-if(level===2){const minSeparation=difficulty==='easy'?78:difficulty==='challenge'?32:52;state.targets=makeSeparatedTargets(3,minSeparation);state.placements=[null,null,null];state.lockedSlots=[false,false,false];state.deck=[];state.targets.forEach(t=>state.deck.push(...getGuaranteedMatchDeck(t,4,difficulty)));state.candidates=state.deck.slice();state.deck=shuffle(state.deck);state.correct=state.targets.map(t=>state.candidates.reduce((best,c)=>!best||distance(c.color,t)<distance(best.color,t)?c:best,null)?.id)}
-if(level===3){let start=randomHex(),end=randomHex();state.targets=[start,end];let steps=[.25,.5,.75].map(t=>makeCard(mix(start,end,t)));let decoys=Array.from({length:3},()=>makeCard(randomHex()));state.deck=shuffle([...steps,...decoys]);state.correct=steps.map(c=>c.id);state.placements=[null,null,null]}
-if(level===4){let colors=Array.from({length:9},()=>randomHex()); // Set a coherent color neighborhood so valid solutions are possible.
-let base=randomHex();colors=[base,mix(base,randomHex(),.10),mix(base,randomHex(),.10),mix(base,randomHex(),.12),mix(base,randomHex(),.18),mix(base,randomHex(),.15),mix(base,randomHex(),.13),mix(base,randomHex(),.17),mix(base,randomHex(),.16)];state.targets=colors;state.fixed=[0,2,4,6,8];state.placements=[null,null,null,null];state.deck=shuffle([1,3,5,7].map(i=>makeCard(colors[i])));state.deck.push(...Array.from({length:8},()=>makeCard(mix(base,randomHex(),.25))));}
-renderRound();stats();setFeedback('Draw a card from the stock to begin.');}
-function draw(){if(state.finished)return;if(!state.deck.length){setFeedback('The stock is empty. Use the refresh button to recycle your unplaced drawn cards.','bad');return}let c=state.deck.pop();state.discard.push(c);state.selected=c.id;renderRound();stats();setFeedback(`Drew ${c.color}. Click a slot or drag the card into one.`)}
-function refreshDeck(){if(state.finished)return;const placedIds=new Set(state.placements.filter(Boolean).map(c=>c.id));const recyclable=state.discard.filter(c=>!placedIds.has(c.id));if(!recyclable.length){setFeedback('No unplaced drawn cards are available to recycle.','bad');return}state.deck=shuffle([...state.deck,...recyclable]);state.discard=state.discard.filter(c=>placedIds.has(c.id));state.selected=null;state.reshuffles++;state.roundReshuffles++;state.score=Math.max(0,state.score-10);renderRound();stats();setFeedback('Deck refreshed! Unplaced drawn cards have been shuffled back into the stock. −10 points.','bad')}
-function acceptCard(card,index){if(state.finished)return;if(level===2){if(state.lockedSlots[index]){setFeedback('That correct match is locked in place.','good');return}const lockedElsewhere=state.placements.findIndex((c,i)=>i!==index&&state.lockedSlots[i]&&c&&c.id===card.id);if(lockedElsewhere!==-1){setFeedback('That card is already locked into another target. Choose a different card.','bad');return}}if(level===1){state.placements=[card];state.selected=null;renderRound();setFeedback('Card placed. Validate when ready.')}else if(level===2){state.placements[index]=card;state.selected=null;renderRound();setFeedback('Pairing updated. You can replace any card before validating.')}else if(level===3){state.placements[index]=card;state.selected=null;renderRound();setFeedback('Bridge position updated. Place all three cards in color order.')}else if(level===4){state.placements[index]=card;state.selected=null;renderRound();setFeedback('Matrix cell updated. Check every horizontal and vertical neighbor.')}stats();renderResearch()}
-function renderRound(){let area=$('play-area');area.innerHTML='';if(state.round>6){renderFinal();return}if(level===1){area.innerHTML='<div class="target-foundation"><div class="section-label">TARGET</div><div class="target-swatch"></div><div class="target-label">Match this color</div></div>';let t=area.querySelector('.target-swatch');t.style.background=state.targets[0];t.title=state.targets[0];renderDeck(area);area.insertAdjacentHTML('beforeend','<div class="section-label" style="text-align:center">Your match</div>');let row=document.createElement('div');row.className='slot-row';addSlot(row,'Match',0,state.placements[0],acceptCard);area.append(row)}
-if(level===2){area.innerHTML='<div class="section-label">Match each target to its closest card</div>';let tg=document.createElement('div');tg.className='target-grid';state.targets.forEach((t,i)=>{let d=document.createElement('div');d.className='target-item';d.innerHTML=`<div class="section-label">Target ${i+1}</div><div class="target-swatch" style="background:${t}"></div>`;tg.append(d)});area.append(tg);renderDeck(area);let row=document.createElement('div');row.className='slot-row';state.targets.forEach((t,i)=>addSlot(row,`Target ${i+1}`,i,state.placements[i],acceptCard));area.append(row)}
-if(level===3){area.innerHTML=`<div class="section-label">Build a smooth color bridge</div><div class="slot-row"><div class="target-item"><div class="section-label">START</div><div class="target-swatch" style="background:${state.targets[0]}"></div></div><div class="target-item"><div class="section-label">END</div><div class="target-swatch" style="background:${state.targets[1]}"></div></div></div>`;renderDeck(area);area.insertAdjacentHTML('beforeend','<div class="section-label" style="text-align:center">Order the three bridge cards from START to END</div>');let row=document.createElement('div');row.className='slot-row';for(let i=0;i<3;i++)addSlot(row,`Bridge ${i+1}`,i,state.placements[i],acceptCard);area.append(row)}
-if(level===4){area.innerHTML='<div class="section-label">Complete the 3 × 3 matrix</div>'; renderDeck(area);let m=document.createElement('div');m.className='matrix';for(let i=0;i<9;i++){if(state.fixed.includes(i)){let d=document.createElement('div');d.className='slot fixed';d.innerHTML=`<small>ANCHOR</small><span class="swatch" style="background:${state.targets[i]}"></span>`;m.append(d)}else{let pi=[1,3,5,7].indexOf(i);addSlot(m,`Cell ${i+1}`,pi,state.placements[pi],acceptCard)}}area.append(m)}
-}
-function returnCurrentToStock(cardId){const idx=state.discard.findIndex(c=>c.id===cardId);const placedIndex=state.placements.findIndex(c=>c&&c.id===cardId);if(idx<0){setFeedback('That card is not available to return to the stock.','bad');return}if(placedIndex>=0&&level===2&&state.lockedSlots[placedIndex]){setFeedback('That correct match is locked in place and cannot be returned.','bad');return}const card=state.discard.splice(idx,1)[0];if(placedIndex>=0)state.placements[placedIndex]=null;state.deck.push(card);state.selected=null;renderRound();stats();setFeedback(`${card.color} returned to the stock and removed from its match slot. Draw again when ready.`,'good')}
-function renderDeck(area){
- let row=document.createElement('div');row.className='deck-row';
- let stock=document.createElement('div');stock.className='deck-zone stock-zone';stock.innerHTML='<div class="section-label">Draw pile</div>';
- let b=document.createElement('button');b.className='stock-card';b.type='button';
- if(state.deck.length){b.setAttribute('aria-label','Draw the next card from the draw pile');b.title='Draw the next card';b.onclick=draw;}
- else{b.classList.add('stock-empty');b.innerHTML='<span aria-hidden="true">↻</span>';b.setAttribute('aria-label','Refresh deck');b.title='Refresh unplaced cards';b.onclick=refreshDeck;}
- stock.append(b);let count=document.createElement('div');count.className='stock-count';count.textContent=state.deck.length?`${state.deck.length} card${state.deck.length===1?'':'s'} left`:'Draw pile empty · refresh to continue';stock.append(count);row.append(stock);
- let current=document.createElement('div');current.className='deck-zone current-zone';current.innerHTML='<div class="section-label">Current card</div>';
- let c=state.selected?cardById(state.selected):null;
- if(c&&state.discard.some(x=>x.id===c.id)){current.append(cardEl(c,{showHex:true}));let hint=document.createElement('div');hint.className='stock-count';hint.textContent='Drag to a match slot or to the return pile';current.append(hint);}
- else current.insertAdjacentHTML('beforeend','<div class="current-empty" aria-label="No current card">No card drawn</div>');
- row.append(current);
- let returned=document.createElement('div');returned.className='deck-zone return-zone';returned.innerHTML='<div class="section-label">Return pile</div><div class="return-pile" aria-label="Drop unwanted card here"><span aria-hidden="true">↩</span><small>Return unwanted card</small></div>';
- const enableReturn=e=>{if(state.selected&&state.discard.some(x=>x.id===state.selected)){e.preventDefault();returned.classList.add('return-ready')}};
- returned.addEventListener('dragover',enableReturn);returned.addEventListener('dragleave',e=>{if(!returned.contains(e.relatedTarget))returned.classList.remove('return-ready')});
- returned.addEventListener('drop',e=>{e.preventDefault();returned.classList.remove('return-ready');const id=e.dataTransfer.getData('text/plain')||state.selected;if(id)returnCurrentToStock(id)});
- row.append(returned);area.append(row);
-}
-function validate(){if(state.round>6||state.finished)return;if(level===1){if(!state.placements[0])return setFeedback('Place a card in the match slot first.','bad');let target=state.targets[0],all=allRoundCards();if(!all.length)return setFeedback('Draw a card and place it in the match slot first.','bad');let chosen=state.placements[0];let chosenDelta=distance(chosen.color,target);let ranked=all.map(c=>({card:c,delta:distance(c.color,target)})).sort((a,b)=>a.delta-b.delta);let bestDelta=ranked[0].delta;let gap=chosenDelta-bestDelta;if(gap<=.0001){clearRound(`Correct! ${chosen.color} has the lowest ΔE to the target: ${chosenDelta.toFixed(2)}.`,chosenDelta)}else{fail(`Not the closest match yet. Your card ${chosen.color} has ΔE ${chosenDelta.toFixed(2)} to the target. The best candidate is ΔE ${bestDelta.toFixed(2)}, so your card is ${gap.toFixed(2)} ΔE units farther away. Try another card or refresh the stock.`)}}
-if(level===2){const pending=state.placements.map((c,i)=>({card:c,index:i})).filter(x=>x.card&&!state.lockedSlots[x.index]);if(!pending.length){if(state.lockedSlots.length&&state.lockedSlots.every(Boolean))clearRound('All three closest matches are locked in!',0);else setFeedback('Place a card in at least one unlocked target slot before validating.','bad');return}const correctNow=[],incorrect=[];for(const {card,index} of pending){const target=state.targets[index];const best=state.candidates.reduce((b,c)=>!b||distance(c.color,target)<distance(b.color,target)?c:b,null);const chosenDelta=distance(card.color,target);const bestDelta=distance(best.color,target);const gap=chosenDelta-bestDelta;if(card.id===best.id||Math.abs(gap)<=.0001){state.lockedSlots[index]=true;correctNow.push({index,delta:chosenDelta})}else incorrect.push({index,chosenDelta,bestDelta,gap})}if(correctNow.length){setFeedback(`Correct match${correctNow.length===1?'':'es'} locked: ${correctNow.map(x=>`Target ${x.index+1} (ΔE ${x.delta.toFixed(2)})`).join(', ')}. You can now focus on the remaining target${state.lockedSlots.every(Boolean)?'':'s'}.`,'good');renderRound();stats()}if(incorrect.length){state.failures++;state.roundFailed=true;state.score=Math.max(0,state.score-5);const detail=incorrect.map(x=>`Target ${x.index+1}: your ΔE ${x.chosenDelta.toFixed(2)}; lowest possible ΔE ${x.bestDelta.toFixed(2)}; difference +${x.gap.toFixed(2)}.`).join(' ');setFeedback(`${correctNow.length?`Locked ${correctNow.length} correct match${correctNow.length===1?'':'es'}. `:''}${detail} Replace only the incorrect card${incorrect.length===1?'':'s'}; locked matches will remain. −5 points.`,'bad');stats()}if(state.lockedSlots.every(Boolean)){setTimeout(()=>clearRound('All three matches are correct and locked in place!',0),350)}return;}
-if(level===3){if(state.placements.some(x=>!x))return setFeedback('Place all three bridge cards first.','bad');let seq=[state.targets[0],...state.placements.map(c=>c.color),state.targets[1]];let labs=seq.map(lab);let monotonic=true;for(let j=1;j<labs.length-1;j++){// Smooth bridge should not reverse direction in Lab lightness and remain between anchors in RGB interpolation distance.
-let prev=distance(seq[j-1],seq[j]),next=distance(seq[j],seq[j+1]);if(prev<.01||next<.01)continue;
-}let candidates=state.placements.map(c=>c.color);let ideal=[.25,.5,.75].map(t=>mix(state.targets[0],state.targets[1],t));let cost=candidates.reduce((s,c,i)=>s+distance(c,ideal[i]),0);let orderedCost=candidates.reduce((s,c,i)=>s+distance(c,ideal[i]),0);let sorted=state.placements.map(c=>c.color).sort((a,b)=>{let da=distance(a,state.targets[0]),db=distance(b,state.targets[0]);return da-db});let sortedCost=sorted.reduce((s,c,i)=>s+distance(c,ideal[i]),0);monotonic=orderedCost<=sortedCost+.001;if(monotonic)clearRound('Beautiful bridge! The cards progress from START to END.',0);else fail('The bridge colors are out of order. Rearrange the cards from closest to START to closest to END.');}
-if(level===4){if(state.placements.some(x=>!x))return setFeedback('Fill all four open cells before validating.','bad');let grid=state.targets.slice();[1,3,5,7].forEach((idx,j)=>grid[idx]=state.placements[j].color);let violations=[];for(let r=0;r<3;r++)for(let c=0;c<3;c++){let i=r*3+c;if(c<2&&distance(grid[i],grid[i+1])>35)violations.push([i,i+1,distance(grid[i],grid[i+1])]);if(r<2&&distance(grid[i],grid[i+3])>35)violations.push([i,i+3,distance(grid[i],grid[i+3])]);}if(!violations.length)clearRound('Matrix accepted! Every adjacent transition is ΔE ≤ 35.',0);else fail(`${violations.length} adjacent transition(s) exceed ΔE 35. Try replacing cards or changing formula.`)} }
-function fail(msg){state.failures++;state.roundFailed=true;state.score=Math.max(0,state.score-5);setFeedback(msg+' −5 points.','bad');stats();renderResearch()}
-function clearRound(msg,delta){state.score+=100;if(!state.roundFailed)state.score+=25;if(state.roundReshuffles===0)state.score+=25;const visionMode=$('vision').value;if(visionMode!=='normal')state.score+=25;state.runLog.push({level,round:state.round,score:state.score,failures:state.failures,reshuffles:state.reshuffles,formula:$('formula').value});state.revealed.push(state.mystery.replace('#','')[state.round-1]);state.round++;state.placements=[];setFeedback(msg+(visionMode!=='normal'?' +25 vision challenge bonus!':''),'good');stats();if(state.round>6){setTimeout(renderFinal,500)}else{setTimeout(setupRound,650)}}
-function renderFinal(){state.finished=true;let area=$('play-area');area.innerHTML=`<div class="empty-state final-hex-prompt"><div class="big-emoji">✧･ﾟ: *✧</div><h2>Six rounds complete!</h2><p>Use the revealed hexadecimal code to identify the matching color.</p><div class="final-code" aria-label="Mystery hexadecimal code">${state.mystery}</div><p class="mini-note">Choose the matching swatch below. The mystery color itself is not shown here.</p></div>`;let choices=[state.mystery,...Array.from({length:3},()=>{let c;do{c=randomHex()}while(c===state.mystery);return c})].map(c=>makeCard(c));shuffle(choices);let lineup=document.createElement('div');lineup.className='choice-lineup';choices.forEach(c=>{let el=cardEl(c,{showHex:false});el.setAttribute('aria-label','Color option');el.onclick=()=>{if(c.color===state.mystery){state.score+=150;state.finished=true;state.finalChoice=c.color;let unlockedNow=level;try{unlockedNow=Math.max(level,Number(localStorage.getItem('dealtae-unlocked-level')||1));if(level<4)unlockedNow=Math.max(unlockedNow,level+1);localStorage.setItem('dealtae-unlocked-level',String(Math.min(4,unlockedNow)));}catch(e){}area.innerHTML=`<div class="empty-state"><div class="big-emoji">🏆</div><h2>Level complete!</h2><p>You identified the mystery color.</p><div class="target-swatch" style="background:${state.mystery}"></div><p><b>${state.mystery}</b></p><p>Final score: <b>${state.score}</b></p><div class="actions"><button class="button primary" onclick="location.href='${level===4?'level1.html':'level'+(level+1)+'.html'}'">${level===4?'Replay Level 1':'Unlock Level '+(level+1)+' →'}</button><a class="button secondary" href="index.html">Level menu</a></div><p class="mini-note">${level===4?'You completed all four levels! You can replay any unlocked level from the menu.':'Level '+(level+1)+' is now unlocked.'}</p><p class="mini-note">Research summary: ${state.runLog.length} rounds · ${state.failures} failed checks · ${state.reshuffles} reshuffles · formula ${$('formula').value.toUpperCase()}.</p></div>`;setFeedback('Mystery color identified! +150 points.','good');stats()}else{state.failures++;state.score=Math.max(0,state.score-5);el.style.opacity='.35';el.disabled=true;setFeedback('Not quite — try another card. −5 points.','bad');stats()}};lineup.append(el)});area.append(lineup);$('actions').style.display='none';stats();showHexTutorialOnce()}
-function showHexTutorialOnce(){let seen=false;try{seen=localStorage.getItem('dealtae-hex-tutorial-seen')==='yes'}catch(e){}if(seen)return;const overlay=document.createElement('div');overlay.className='hex-tutorial-backdrop';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-labelledby','hex-tutorial-title');overlay.innerHTML=`<section class="hex-tutorial-card"><button type="button" class="hex-tutorial-close" aria-label="Close tutorial">×</button><div class="section-label">COLOR SCIENCE MINI-LESSON</div><h2 id="hex-tutorial-title">How to read a hex code</h2><p>A six-digit hex code stores three color-channel values. Read the pairs from left to right:</p><div class="hex-tutorial-code"><span class="hex-hash">#</span><span class="hex-pair red-pair">RR</span><span class="hex-pair green-pair">GG</span><span class="hex-pair blue-pair">BB</span></div><svg class="hex-tutorial-arrows" viewBox="0 0 330 62" role="img" aria-label="Arrows connect each pair to its color channel"><defs><marker id="hex-arrowhead" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="currentColor"/></marker></defs><path d="M70 2 L55 43" stroke="#D94D70" stroke-width="2" fill="none" marker-end="url(#hex-arrowhead)"/><path d="M165 2 L165 43" stroke="#399C69" stroke-width="2" fill="none" marker-end="url(#hex-arrowhead)"/><path d="M260 2 L275 43" stroke="#527DDA" stroke-width="2" fill="none" marker-end="url(#hex-arrowhead)"/></svg><div class="hex-tutorial-labels"><div><b>RR · Red</b><span>First pair</span></div><div><b>GG · Green</b><span>Second pair</span></div><div><b>BB · Blue</b><span>Third pair</span></div></div><p class="mini-note">Each pair is a hexadecimal number from <b>00</b> to <b>FF</b>, representing a channel value from 0 to 255. For example, <b>FF</b> is 255 (maximum) and <b>00</b> is 0 (none).</p><button type="button" class="button primary hex-tutorial-done">Got it — let me solve it!</button></section>`;document.body.append(overlay);const close=()=>{overlay.remove();try{localStorage.setItem('dealtae-hex-tutorial-seen','yes')}catch(e){}};overlay.querySelector('.hex-tutorial-close').addEventListener('click',close);overlay.querySelector('.hex-tutorial-done').addEventListener('click',close);overlay.addEventListener('click',e=>{if(e.target===overlay)close()})}
-function resetPlacements(){if(state.round>6)return;state.placements=level===1?[null]:level===2?state.placements.map((c,i)=>state.lockedSlots[i]?c:null):level===3?[null,null,null]:[null,null,null,null];state.selected=null;renderRound();setFeedback('Placements reset. Cards remain available.');renderResearch()}
-function renderResearch(){let panel=$('research-panel');if(!panel)return;let colors=state.targets.length?state.targets:[randomHex()];let c=state.selected?cardById(state.selected):state.placements.find(Boolean);if(!c)c=state.discard[state.discard.length-1];if(!c){$('research-results').textContent='Draw or place a card to compare distances.';return}let rows=colors.map((t,i)=>`Target ${i+1}: ΔE76 ${distance(c.color,t,'de76').toFixed(2)} · ΔE00 ${distance(c.color,t,'de00').toFixed(2)}`);$('research-results').innerHTML=`<b>Selected card ${c.color}</b><br>${rows.join('<br>')}`;$('research-summary').textContent='Rankings can differ because ΔE76 and CIEDE2000 model color differences differently.'}
-function showModal(title,html){$('modal-content').innerHTML=`<h2>${title}</h2>${html}`;$('modal').classList.add('visible')}
-$('validate').addEventListener('click',validate);$('formula').addEventListener('change',renderResearch);$('difficulty').addEventListener('change',()=>{if(state.round<=6)setupRound()});const visionDescriptions={normal:'Normal view: colors are shown without a simulated vision change. No challenge bonus is awarded.',protanopia:'Protanopia: a simulation of a type of red-green color vision deficiency involving reduced sensitivity to long-wavelength (red) light.',deuteranopia:'Deuteranopia: a simulation of a type of red-green color vision deficiency involving reduced sensitivity to medium-wavelength (green) light.',tritanopia:'Tritanopia: a simulation of a less common blue-yellow color vision deficiency involving short-wavelength (blue) sensitivity.',grayscale:'Grayscale: removes hue information, leaving differences in lightness and contrast.'};function updateVision(){const mode=$('vision').value;document.body.classList.remove('vis-normal','vis-protanopia','vis-deuteranopia','vis-tritanopia','vis-grayscale');document.body.classList.add('vis-'+mode);$('vision-description').textContent=visionDescriptions[mode];$('vision-bonus').textContent=mode==='normal'?'Normal view: no extra challenge bonus.':'Challenge active: +25 points for every successfully completed round while this mode is selected.';try{localStorage.setItem('dealtae-vision',mode)}catch(e){}}$('vision').addEventListener('change',updateVision);$('vision-toggle').addEventListener('click',()=>{const menu=$('vision-menu');menu.hidden=!menu.hidden;$('vision-toggle').setAttribute('aria-expanded',String(!menu.hidden));if(!menu.hidden)updateVision()});$('research-toggle').addEventListener('click',()=>{$('research-panel').classList.toggle('visible');$('research-toggle').setAttribute('aria-expanded',String($('research-panel').classList.contains('visible')));renderResearch()});$('help-button').addEventListener('click',()=>showModal('Color Science & Code Guide',`<h3>What is ΔE?</h3><p>ΔE estimates the difference between two colors. ΔE76 is the Euclidean distance in CIELAB. CIEDE2000 (ΔE00) applies corrections intended to better reflect non-uniformities in perceived color difference.</p><h3>RGB and hexadecimal color codes</h3><p>A six-digit color code such as <b>#FF5E7E</b> stores three RGB channels: <b>FF</b> is red, <b>5E</b> is green, and <b>7E</b> is blue. The # marks the value as a color code; the six digits are grouped into three two-digit pairs.</p><p>Hexadecimal is base 16. It uses the symbols 0–9 and A–F, where A means 10, B means 11, and so on through F = 15. Each pair ranges from <b>00</b> to <b>FF</b>, equivalent to decimal 0–255. For example, <b>FF</b> is 15 × 16 + 15 = 255, while <b>2A</b> is 2 × 16 + 10 = 42. So #FF5E7E means red 255, green 94, blue 126.</p><p>RGB channels mix light: higher channel values mean more of that light component. The same hex code represents the same encoded RGB values, though displays and viewing conditions can affect how the color looks.</p><h3>Vision simulations</h3><p>The display modes approximate common color-vision differences. They do not model every person's experience and should not be used for diagnosis. Keep labels, keyboard controls, and other cues available in addition to color.</p><h3>Scoring</h3><p>Each cleared round earns 100 points, plus a 25-point first-try bonus and 25 points if the stock was not reshuffled during that round. Each reshuffle costs 10 points; failed validation costs 5.</p>`));$('close-modal').addEventListener('click',()=>$('modal').classList.remove('visible'));$('modal').addEventListener('click',e=>{if(e.target===$('modal'))$('modal').classList.remove('visible')});
-try{let v=localStorage.getItem('dealtae-vision');if(v&&$('vision').querySelector(`[value="${v}"]`)){$('vision').value=v;document.body.classList.add('vis-'+v)}}catch(e){}if($('vision-description'))updateVision();setupRound();
+    "use strict";
+    const root = document.getElementById("game");
+    if (!root) return;
+    const level = Number(root.dataset.level) || 1,
+        $ = (id) => document.getElementById(id);
+    if (level >= 2) {
+        const board = $("board"),
+            toggle = $("research-toggle"),
+            panel = $("research-panel");
+        if (board && toggle && panel) {
+            const corner = document.createElement("div");
+            corner.className = "delta-info-corner";
+            corner.append(toggle, panel);
+            board.append(corner);
+            toggle.textContent = "ΔE info ⓘ";
+            toggle.setAttribute("aria-label", "Show color difference information");
+            panel.querySelector("h3").textContent = "Color difference (ΔE)";
+        }
+    }
+    let highestUnlocked = 1;
+    try {
+        highestUnlocked = Math.max(1, Number(localStorage.getItem("dealtae-unlocked-level") || 1));
+    } catch (e) {}
+    if (level > highestUnlocked) {
+        location.replace("index.html");
+        return;
+    }
+    const state = {
+        round: 1,
+        score: 0,
+        reshuffles: 0,
+        failures: 0,
+        deck: [],
+        discard: [],
+        candidates: [],
+        selected: null,
+        placements: [],
+        lockedSlots: [],
+        targets: [],
+        correct: null,
+        mystery: "",
+        revealed: [],
+        roundFailed: false,
+        roundReshuffles: 0,
+        finished: false,
+        finalChoice: null,
+        runLog: [],
+    };
+    const names = { 1: "Single Match", 2: "Color Families", 3: "Gradient Bridge", 4: "Color Matrix" };
+    const rand = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    function rgb(hex) {
+        hex = hex.replace("#", "");
+        return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+    }
+    function hex(a) {
+        return (
+            "#" +
+            a
+                .map((v) =>
+                    Math.round(clamp(v, 0, 255))
+                        .toString(16)
+                        .padStart(2, "0")
+                )
+                .join("")
+                .toUpperCase()
+        );
+    }
+    function randomHex() {
+        return hex([rand(0, 255), rand(0, 255), rand(0, 255)]);
+    }
+    function lab(h) {
+        let [r, g, b] = rgb(h)
+            .map((v) => v / 255)
+            .map((v) => (v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+        let x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047,
+            y = r * 0.2126 + g * 0.7152 + b * 0.0722,
+            z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
+        const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+        let fx = f(x),
+            fy = f(y),
+            fz = f(z);
+        return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+    }
+    function de76(h1, h2) {
+        let a = lab(h1),
+            b = lab(h2);
+        return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    }
+    // CIEDE2000 implementation (Sharma et al. formulation).
+    function de00(h1, h2) {
+        let [L1, a1, b1] = lab(h1),
+            [L2, a2, b2] = lab(h2);
+        let C1 = Math.hypot(a1, b1),
+            C2 = Math.hypot(a2, b2),
+            Cm = (C1 + C2) / 2,
+            G = 0.5 * (1 - Math.sqrt(Math.pow(Cm, 7) / (Math.pow(Cm, 7) + Math.pow(25, 7))));
+        let ap1 = (1 + G) * a1,
+            ap2 = (1 + G) * a2,
+            Cp1 = Math.hypot(ap1, b1),
+            Cp2 = Math.hypot(ap2, b2);
+        const hue = (a, b) => {
+            let h = (Math.atan2(b, a) * 180) / Math.PI;
+            return h < 0 ? h + 360 : h;
+        };
+        let hp1 = hue(ap1, b1),
+            hp2 = hue(ap2, b2);
+        let dL = L2 - L1,
+            dC = Cp2 - Cp1,
+            dh;
+        if (Cp1 * Cp2 === 0) dh = 0;
+        else if (Math.abs(hp2 - hp1) <= 180) dh = hp2 - hp1;
+        else if (hp2 - hp1 > 180) dh = hp2 - hp1 - 360;
+        else dh = hp2 - hp1 + 360;
+        let dH = 2 * Math.sqrt(Cp1 * Cp2) * Math.sin((dh * Math.PI) / 360),
+            Lm = (L1 + L2) / 2,
+            Cpm = (Cp1 + Cp2) / 2;
+        let hm;
+        if (Cp1 * Cp2 === 0) hm = hp1 + hp2;
+        else if (Math.abs(hp1 - hp2) <= 180) hm = (hp1 + hp2) / 2;
+        else if (hp1 + hp2 < 360) hm = (hp1 + hp2 + 360) / 2;
+        else hm = (hp1 + hp2 - 360) / 2;
+        let T =
+            1 -
+            0.17 * Math.cos(((hm - 30) * Math.PI) / 180) +
+            0.24 * Math.cos((2 * hm * Math.PI) / 180) +
+            0.32 * Math.cos(((3 * hm + 6) * Math.PI) / 180) -
+            0.2 * Math.cos(((4 * hm - 63) * Math.PI) / 180);
+        let SL = 1 + (0.015 * Math.pow(Lm - 50, 2)) / Math.sqrt(20 + Math.pow(Lm - 50, 2)),
+            SC = 1 + 0.045 * Cpm,
+            SH = 1 + 0.015 * Cpm * T;
+        let dTheta = 30 * Math.exp(-Math.pow((hm - 275) / 25, 2)),
+            RC = 2 * Math.sqrt(Math.pow(Cpm, 7) / (Math.pow(Cpm, 7) + Math.pow(25, 7))),
+            RT = -RC * Math.sin((2 * dTheta * Math.PI) / 180);
+        return Math.sqrt(
+            Math.pow(dL / SL, 2) + Math.pow(dC / SC, 2) + Math.pow(dH / SH, 2) + RT * (dC / SC) * (dH / SH)
+        );
+    }
+    function distance(a, b, formula = $("formula").value) {
+        return formula === "de00" ? de00(a, b) : de76(a, b);
+    }
+    function mix(a, b, t) {
+        let x = rgb(a),
+            y = rgb(b);
+        return hex(x.map((v, i) => v + (y[i] - v) * t));
+    }
+    function makeCard(color, id) {
+        return { id: id || Math.random().toString(36).slice(2), color };
+    }
+    function shuffle(a) {
+        for (let i = a.length - 1; i > 0; i--) {
+            let j = rand(0, i);
+            [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+    }
+    function cardEl(card, opts = {}) {
+        let el = document.createElement("button");
+        el.type = "button";
+        el.className = "color-card" + (state.selected === card.id ? " chosen" : "");
+        el.draggable = true;
+        el.dataset.cardId = card.id;
+        el.setAttribute("aria-label", `Color card ${card.color}`);
+        el.innerHTML = `<span class="swatch" style="background:${card.color}"></span><span class="color-meta">${opts.showHex ? card.color : "COLOR CARD"}</span>`;
+        el.addEventListener("click", () => selectCard(card));
+        el.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                selectCard(card);
+            }
+        });
+        el.addEventListener("dragstart", (e) => {
+            state.selected = card.id;
+            e.dataTransfer.setData("text/plain", card.id);
+            setFeedback("Card picked up — drop it into a slot.", "");
+        });
+        return el;
+    }
+    function selectCard(card) {
+        state.selected = card.id;
+        document
+            .querySelectorAll(".color-card")
+            .forEach((e) => e.classList.toggle("chosen", e.dataset.cardId === card.id));
+        setFeedback(`Selected ${card.color}. Now click a slot.`, "");
+    }
+    function cardById(id) {
+        return [...state.deck, ...state.discard, ...state.placements.filter(Boolean)].find((c) => c && c.id === id);
+    }
+    function allRoundCards() {
+        const byId = new Map();
+        [...state.deck, ...state.discard, ...state.placements.filter(Boolean)].forEach((c) => {
+            if (c) byId.set(c.id, c);
+        });
+        return [...byId.values()];
+    }
+    function setFeedback(msg, type = "") {
+        let f = $("feedback");
+        f.textContent = msg;
+        f.className = "feedback " + type;
+    }
+    function renderHex() {
+        let h = $("hex-chips");
+        h.innerHTML = "";
+        let prefix = document.createElement("span");
+        prefix.className = "hex-prefix";
+        prefix.textContent = "#";
+        h.append(prefix);
+        for (let i = 0; i < 6; i++) {
+            let d = document.createElement("span");
+            d.className = "hex-chip" + (state.revealed[i] ? " revealed" : "");
+            d.textContent = state.revealed[i] || "＿";
+            d.setAttribute("aria-label", `Hexadecimal character ${i + 1}: ${state.revealed[i] || "not revealed"}`);
+            h.append(d);
+        }
+        $("progress-fill").style.width = (state.revealed.length / 6) * 100 + "%";
+    }
+    function stats() {
+        $("score").textContent = state.score;
+        $("reshuffles").textContent = state.reshuffles;
+        $("failures").textContent = state.failures;
+        $("stock-stat").textContent = state.deck.length;
+        $("round-label").textContent = Math.min(state.round, 6);
+        renderHex();
+    }
+    function addSlot(parent, label, index, filled = null, accept = () => {}) {
+        let locked = level === 2 && !!state.lockedSlots[index];
+        let slot = document.createElement("div");
+        slot.setAttribute("role", "button");
+        slot.tabIndex = 0;
+        slot.className = "slot" + (filled ? " filled" : "") + (locked ? " locked" : "");
+        slot.dataset.slot = index;
+        slot.innerHTML = `<small>${label}${locked ? " · ✓ LOCKED" : ""}</small>`;
+        if (filled) {
+            let card = cardEl(filled, { showHex: true });
+            if (locked) {
+                card.disabled = true;
+                card.draggable = false;
+                card.title = "Correct match locked in place";
+            }
+            slot.append(card);
+        } else slot.insertAdjacentHTML("beforeend", '<span class="mini-note">Drop or click</span>');
+        slot.addEventListener("click", () => {
+            if (locked) return;
+            if (state.selected) {
+                let c = cardById(state.selected);
+                if (c) accept(c, index);
+            } else if (filled) selectCard(filled);
+        });
+        slot.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                if (locked) return;
+                if (state.selected) {
+                    let c = cardById(state.selected);
+                    if (c) accept(c, index);
+                } else if (filled) selectCard(filled);
+            }
+        });
+        slot.addEventListener("dragover", (e) => {
+            if (locked) return;
+            e.preventDefault();
+            slot.style.background = "#f4e8ff";
+        });
+        slot.addEventListener("dragleave", () => (slot.style.background = ""));
+        slot.addEventListener("drop", (e) => {
+            e.preventDefault();
+            slot.style.background = "";
+            if (locked) return;
+            let c = cardById(e.dataTransfer.getData("text/plain") || state.selected);
+            if (c) accept(c, index);
+        });
+        parent.append(slot);
+        return slot;
+    }
+    function getCards(count, target, spread) {
+        let out = [];
+        for (let i = 0; i < count; i++) {
+            let color;
+            if (i === 0) color = mix(target, randomHex(), spread * 0.16);
+            else {
+                let base = rgb(target),
+                    amt = spread * (0.35 + Math.random() * 0.9);
+                color = hex(base.map((v) => v + rand(-amt, amt)));
+            }
+            out.push(makeCard(color));
+        }
+        return out;
+    }
+    function getGuaranteedMatchDeck(target, count, spread) {
+        const base = rgb(target);
+        let near = null,
+            nearD = Infinity;
+        for (let tries = 0; tries < 80; tries++) {
+            let delta = rand(1, 3),
+                channel = rand(0, 2),
+                sign = rand(0, 1) ? 1 : -1,
+                arr = base.slice();
+            arr[channel] = clamp(arr[channel] + delta * sign, 0, 255);
+            const candidate = hex(arr),
+                d = Math.max(distance(candidate, target, "de76"), distance(candidate, target, "de00"));
+            if (d > 0 && d < nearD) {
+                near = candidate;
+                nearD = d;
+            }
+        }
+        if (!near) {
+            near = hex(base.map((v, i) => clamp(v + (i === 0 ? 1 : 0), 0, 255)));
+            nearD = Math.max(distance(near, target, "de76"), distance(near, target, "de00"));
+        }
+        const out = [makeCard(near)];
+        const maxD = spread === "easy" ? 65 : spread === "challenge" ? 18 : 38;
+        let tries = 0;
+        while (out.length < count && tries < 5000) {
+            tries++;
+            let amt = spread === "easy" ? rand(12, 90) : spread === "challenge" ? rand(3, 24) : rand(6, 48);
+            let candidate = hex(base.map((v) => clamp(v + rand(-amt, amt), 0, 255)));
+            let d76 = distance(candidate, target, "de76"),
+                d00 = distance(candidate, target, "de00");
+            if (Math.min(d76, d00) > nearD + 0.15 && Math.max(d76, d00) <= maxD) out.push(makeCard(candidate));
+        }
+        while (out.length < count) {
+            let candidate = randomHex();
+            if (
+                distance(candidate, target, "de76") > nearD + 0.15 &&
+                distance(candidate, target, "de00") > nearD + 0.15
+            )
+                out.push(makeCard(candidate));
+        }
+        return shuffle(out);
+    }
+    function makeSeparatedTargets(count, minSeparation) {
+        const targets = [];
+        let tries = 0;
+        while (targets.length < count && tries < 10000) {
+            tries++;
+            const candidate = randomHex();
+            if (
+                targets.every(
+                    (t) =>
+                        distance(candidate, t, "de76") > minSeparation && distance(candidate, t, "de00") > minSeparation
+                )
+            )
+                targets.push(candidate);
+        }
+        while (targets.length < count) {
+            let candidate = randomHex();
+            if (!targets.includes(candidate)) targets.push(candidate);
+        }
+        return targets;
+    }
+    function setupRound() {
+        state.deck = [];
+        state.discard = [];
+        state.candidates = [];
+        state.placements = [];
+        state.lockedSlots = [];
+        state.targets = [];
+        state.selected = null;
+        state.roundFailed = false;
+        state.roundReshuffles = 0;
+        state.finished = false;
+        state.finalChoice = null;
+        if (!state.mystery) state.mystery = randomHex();
+        let difficulty = $("difficulty").value;
+        let spread = difficulty === "easy" ? 35 : difficulty === "challenge" ? 9 : 20;
+        if (level === 1) {
+            let target = randomHex();
+            state.targets = [target];
+            state.deck = getGuaranteedMatchDeck(target, 5, difficulty);
+            state.correct = state.deck.reduce(
+                (best, c) => (!best || distance(c.color, target) < distance(best.color, target) ? c : best),
+                null
+            );
+        }
+        if (level === 2) {
+            const minSeparation = difficulty === "easy" ? 78 : difficulty === "challenge" ? 32 : 52;
+            state.targets = makeSeparatedTargets(3, minSeparation);
+            state.placements = [null, null, null];
+            state.lockedSlots = [false, false, false];
+            state.deck = [];
+            state.targets.forEach((t) => state.deck.push(...getGuaranteedMatchDeck(t, 4, difficulty)));
+            state.candidates = state.deck.slice();
+            state.deck = shuffle(state.deck);
+            state.correct = state.targets.map(
+                (t) =>
+                    state.candidates.reduce(
+                        (best, c) => (!best || distance(c.color, t) < distance(best.color, t) ? c : best),
+                        null
+                    )?.id
+            );
+        }
+        if (level === 3) {
+            let start = randomHex(),
+                end = randomHex();
+            state.targets = [start, end];
+            let steps = [0.25, 0.5, 0.75].map((t) => makeCard(mix(start, end, t)));
+            let decoys = Array.from({ length: 3 }, () => makeCard(randomHex()));
+            state.deck = shuffle([...steps, ...decoys]);
+            state.correct = steps.map((c) => c.id);
+            state.placements = [null, null, null];
+        }
+        if (level === 4) {
+            let colors = Array.from({ length: 9 }, () => randomHex()); // Set a coherent color neighborhood so valid solutions are possible.
+            let base = randomHex();
+            colors = [
+                base,
+                mix(base, randomHex(), 0.1),
+                mix(base, randomHex(), 0.1),
+                mix(base, randomHex(), 0.12),
+                mix(base, randomHex(), 0.18),
+                mix(base, randomHex(), 0.15),
+                mix(base, randomHex(), 0.13),
+                mix(base, randomHex(), 0.17),
+                mix(base, randomHex(), 0.16),
+            ];
+            state.targets = colors;
+            state.fixed = [0, 2, 4, 6, 8];
+            state.placements = [null, null, null, null];
+            state.deck = shuffle([1, 3, 5, 7].map((i) => makeCard(colors[i])));
+            state.deck.push(...Array.from({ length: 8 }, () => makeCard(mix(base, randomHex(), 0.25))));
+        }
+        renderRound();
+        stats();
+        setFeedback("Draw a card from the stock to begin.");
+    }
+    function draw() {
+        if (state.finished) return;
+        if (!state.deck.length) {
+            setFeedback("The stock is empty. Use the refresh button to recycle your unplaced drawn cards.", "bad");
+            return;
+        }
+        let c = state.deck.pop();
+        state.discard.push(c);
+        state.selected = c.id;
+        renderRound();
+        stats();
+        setFeedback(`Drew ${c.color}. Click a slot or drag the card into one.`);
+    }
+    function refreshDeck() {
+        if (state.finished) return;
+        const placedIds = new Set(state.placements.filter(Boolean).map((c) => c.id));
+        const recyclable = state.discard.filter((c) => !placedIds.has(c.id));
+        if (!recyclable.length) {
+            setFeedback("No unplaced drawn cards are available to recycle.", "bad");
+            return;
+        }
+        state.deck = shuffle([...state.deck, ...recyclable]);
+        state.discard = state.discard.filter((c) => placedIds.has(c.id));
+        state.selected = null;
+        state.reshuffles++;
+        state.roundReshuffles++;
+        state.score = Math.max(0, state.score - 10);
+        renderRound();
+        stats();
+        setFeedback("Deck refreshed! Unplaced drawn cards have been shuffled back into the stock. −10 points.", "bad");
+    }
+    function acceptCard(card, index) {
+        if (state.finished) return;
+        if (level === 2) {
+            if (state.lockedSlots[index]) {
+                setFeedback("That correct match is locked in place.", "good");
+                return;
+            }
+            const lockedElsewhere = state.placements.findIndex(
+                (c, i) => i !== index && state.lockedSlots[i] && c && c.id === card.id
+            );
+            if (lockedElsewhere !== -1) {
+                setFeedback("That card is already locked into another target. Choose a different card.", "bad");
+                return;
+            }
+        }
+        if (level === 1) {
+            state.placements = [card];
+            state.selected = null;
+            renderRound();
+            setFeedback("Card placed. Validate when ready.");
+        } else if (level === 2) {
+            state.placements[index] = card;
+            state.selected = null;
+            renderRound();
+            setFeedback("Pairing updated. You can replace any card before validating.");
+        } else if (level === 3) {
+            state.placements[index] = card;
+            state.selected = null;
+            renderRound();
+            setFeedback("Bridge position updated. Place all three cards in color order.");
+        } else if (level === 4) {
+            state.placements[index] = card;
+            state.selected = null;
+            renderRound();
+            setFeedback("Matrix cell updated. Check every horizontal and vertical neighbor.");
+        }
+        stats();
+        renderResearch();
+    }
+    function renderRound() {
+        let area = $("play-area");
+        area.innerHTML = "";
+        if (state.round > 6) {
+            renderFinal();
+            return;
+        }
+        if (level === 1) {
+            area.innerHTML =
+                '<div class="target-foundation"><div class="section-label">TARGET</div><div class="target-swatch"></div><div class="target-label">Match this color</div></div>';
+            let t = area.querySelector(".target-swatch");
+            t.style.background = state.targets[0];
+            t.title = state.targets[0];
+            renderDeck(area);
+            area.insertAdjacentHTML(
+                "beforeend",
+                '<div class="section-label" style="text-align:center">Your match</div>'
+            );
+            let row = document.createElement("div");
+            row.className = "slot-row";
+            addSlot(row, "Match", 0, state.placements[0], acceptCard);
+            area.append(row);
+        }
+        if (level === 2) {
+            area.innerHTML = '<div class="section-label">Match each target to its closest card</div>';
+            let tg = document.createElement("div");
+            tg.className = "target-grid";
+            state.targets.forEach((t, i) => {
+                let d = document.createElement("div");
+                d.className = "target-item";
+                d.innerHTML = `<div class="section-label">Target ${i + 1}</div><div class="target-swatch" style="background:${t}"></div>`;
+                tg.append(d);
+            });
+            area.append(tg);
+            renderDeck(area);
+            let row = document.createElement("div");
+            row.className = "slot-row";
+            state.targets.forEach((t, i) => addSlot(row, `Target ${i + 1}`, i, state.placements[i], acceptCard));
+            area.append(row);
+        }
+        if (level === 3) {
+            area.innerHTML = `<div class="section-label">Build a smooth color bridge</div><div class="slot-row"><div class="target-item"><div class="section-label">START</div><div class="target-swatch" style="background:${state.targets[0]}"></div></div><div class="target-item"><div class="section-label">END</div><div class="target-swatch" style="background:${state.targets[1]}"></div></div></div>`;
+            renderDeck(area);
+            area.insertAdjacentHTML(
+                "beforeend",
+                '<div class="section-label" style="text-align:center">Order the three bridge cards from START to END</div>'
+            );
+            let row = document.createElement("div");
+            row.className = "slot-row";
+            for (let i = 0; i < 3; i++) addSlot(row, `Bridge ${i + 1}`, i, state.placements[i], acceptCard);
+            area.append(row);
+        }
+        if (level === 4) {
+            area.innerHTML = '<div class="section-label">Complete the 3 × 3 matrix</div>';
+            renderDeck(area);
+            let m = document.createElement("div");
+            m.className = "matrix";
+            for (let i = 0; i < 9; i++) {
+                if (state.fixed.includes(i)) {
+                    let d = document.createElement("div");
+                    d.className = "slot fixed";
+                    d.innerHTML = `<small>ANCHOR</small><span class="swatch" style="background:${state.targets[i]}"></span>`;
+                    m.append(d);
+                } else {
+                    let pi = [1, 3, 5, 7].indexOf(i);
+                    addSlot(m, `Cell ${i + 1}`, pi, state.placements[pi], acceptCard);
+                }
+            }
+            area.append(m);
+        }
+    }
+    function returnCurrentToStock(cardId) {
+        const idx = state.discard.findIndex((c) => c.id === cardId);
+        const placedIndex = state.placements.findIndex((c) => c && c.id === cardId);
+        if (idx < 0) {
+            setFeedback("That card is not available to return to the stock.", "bad");
+            return;
+        }
+        if (placedIndex >= 0 && level === 2 && state.lockedSlots[placedIndex]) {
+            setFeedback("That correct match is locked in place and cannot be returned.", "bad");
+            return;
+        }
+        const card = state.discard.splice(idx, 1)[0];
+        if (placedIndex >= 0) state.placements[placedIndex] = null;
+        state.deck.push(card);
+        state.selected = null;
+        renderRound();
+        stats();
+        setFeedback(
+            `${card.color} returned to the stock and removed from its match slot. Draw again when ready.`,
+            "good"
+        );
+    }
+    function renderDeck(area) {
+        let row = document.createElement("div");
+        row.className = "deck-row";
+        let stock = document.createElement("div");
+        stock.className = "deck-zone stock-zone";
+        stock.innerHTML = '<div class="section-label">Draw pile</div>';
+        let b = document.createElement("button");
+        b.className = "stock-card";
+        b.type = "button";
+        if (state.deck.length) {
+            b.setAttribute("aria-label", "Draw the next card from the draw pile");
+            b.title = "Draw the next card";
+            b.onclick = draw;
+        } else {
+            b.classList.add("stock-empty");
+            b.innerHTML = '<span aria-hidden="true">↻</span>';
+            b.setAttribute("aria-label", "Refresh deck");
+            b.title = "Refresh unplaced cards";
+            b.onclick = refreshDeck;
+        }
+        stock.append(b);
+        let count = document.createElement("div");
+        count.className = "stock-count";
+        count.textContent = state.deck.length
+            ? `${state.deck.length} card${state.deck.length === 1 ? "" : "s"} left`
+            : "Draw pile empty · refresh to continue";
+        stock.append(count);
+        row.append(stock);
+        let current = document.createElement("div");
+        current.className = "deck-zone current-zone";
+        current.innerHTML = '<div class="section-label">Current card</div>';
+        let c = state.selected ? cardById(state.selected) : null;
+        if (c && state.discard.some((x) => x.id === c.id)) {
+            current.append(cardEl(c, { showHex: true }));
+            let hint = document.createElement("div");
+            hint.className = "stock-count";
+            hint.textContent = "Drag to a match slot or to the return pile";
+            current.append(hint);
+        } else
+            current.insertAdjacentHTML(
+                "beforeend",
+                '<div class="current-empty" aria-label="No current card">No card drawn</div>'
+            );
+        row.append(current);
+        let returned = document.createElement("div");
+        returned.className = "deck-zone return-zone";
+        returned.innerHTML =
+            '<div class="section-label">Return pile</div><div class="return-pile" aria-label="Drop unwanted card here"><span aria-hidden="true">↩</span><small>Return unwanted card</small></div>';
+        const enableReturn = (e) => {
+            if (state.selected && state.discard.some((x) => x.id === state.selected)) {
+                e.preventDefault();
+                returned.classList.add("return-ready");
+            }
+        };
+        returned.addEventListener("dragover", enableReturn);
+        returned.addEventListener("dragleave", (e) => {
+            if (!returned.contains(e.relatedTarget)) returned.classList.remove("return-ready");
+        });
+        returned.addEventListener("drop", (e) => {
+            e.preventDefault();
+            returned.classList.remove("return-ready");
+            const id = e.dataTransfer.getData("text/plain") || state.selected;
+            if (id) returnCurrentToStock(id);
+        });
+        row.append(returned);
+        area.append(row);
+    }
+    function validate() {
+        if (state.round > 6 || state.finished) return;
+        if (level === 1) {
+            if (!state.placements[0]) return setFeedback("Place a card in the match slot first.", "bad");
+            let target = state.targets[0],
+                all = allRoundCards();
+            if (!all.length) return setFeedback("Draw a card and place it in the match slot first.", "bad");
+            let chosen = state.placements[0];
+            let chosenDelta = distance(chosen.color, target);
+            let ranked = all
+                .map((c) => ({ card: c, delta: distance(c.color, target) }))
+                .sort((a, b) => a.delta - b.delta);
+            let bestDelta = ranked[0].delta;
+            let gap = chosenDelta - bestDelta;
+            if (gap <= 0.0001) {
+                clearRound(
+                    `Correct! ${chosen.color} has the lowest ΔE to the target: ${chosenDelta.toFixed(2)}.`,
+                    chosenDelta
+                );
+            } else {
+                fail(
+                    `Not the closest match yet. Your card ${chosen.color} has ΔE ${chosenDelta.toFixed(2)} to the target. The best candidate is ΔE ${bestDelta.toFixed(2)}, so your card is ${gap.toFixed(2)} ΔE units farther away. Try another card or refresh the stock.`
+                );
+            }
+        }
+        if (level === 2) {
+            const pending = state.placements
+                .map((c, i) => ({ card: c, index: i }))
+                .filter((x) => x.card && !state.lockedSlots[x.index]);
+            if (!pending.length) {
+                if (state.lockedSlots.length && state.lockedSlots.every(Boolean))
+                    clearRound("All three closest matches are locked in!", 0);
+                else setFeedback("Place a card in at least one unlocked target slot before validating.", "bad");
+                return;
+            }
+            const correctNow = [],
+                incorrect = [];
+            for (const { card, index } of pending) {
+                const target = state.targets[index];
+                const best = state.candidates.reduce(
+                    (b, c) => (!b || distance(c.color, target) < distance(b.color, target) ? c : b),
+                    null
+                );
+                const chosenDelta = distance(card.color, target);
+                const bestDelta = distance(best.color, target);
+                const gap = chosenDelta - bestDelta;
+                if (card.id === best.id || Math.abs(gap) <= 0.0001) {
+                    state.lockedSlots[index] = true;
+                    correctNow.push({ index, delta: chosenDelta });
+                } else incorrect.push({ index, chosenDelta, bestDelta, gap });
+            }
+            if (correctNow.length) {
+                setFeedback(
+                    `Correct match${correctNow.length === 1 ? "" : "es"} locked: ${correctNow.map((x) => `Target ${x.index + 1} (ΔE ${x.delta.toFixed(2)})`).join(", ")}. You can now focus on the remaining target${state.lockedSlots.every(Boolean) ? "" : "s"}.`,
+                    "good"
+                );
+                renderRound();
+                stats();
+            }
+            if (incorrect.length) {
+                state.failures++;
+                state.roundFailed = true;
+                state.score = Math.max(0, state.score - 5);
+                const detail = incorrect
+                    .map(
+                        (x) =>
+                            `Target ${x.index + 1}: your ΔE ${x.chosenDelta.toFixed(2)}; lowest possible ΔE ${x.bestDelta.toFixed(2)}; difference +${x.gap.toFixed(2)}.`
+                    )
+                    .join(" ");
+                setFeedback(
+                    `${correctNow.length ? `Locked ${correctNow.length} correct match${correctNow.length === 1 ? "" : "es"}. ` : ""}${detail} Replace only the incorrect card${incorrect.length === 1 ? "" : "s"}; locked matches will remain. −5 points.`,
+                    "bad"
+                );
+                stats();
+            }
+            if (state.lockedSlots.every(Boolean)) {
+                setTimeout(() => clearRound("All three matches are correct and locked in place!", 0), 350);
+            }
+            return;
+        }
+        if (level === 3) {
+            if (state.placements.some((x) => !x)) return setFeedback("Place all three bridge cards first.", "bad");
+            let seq = [state.targets[0], ...state.placements.map((c) => c.color), state.targets[1]];
+            let labs = seq.map(lab);
+            let monotonic = true;
+            for (let j = 1; j < labs.length - 1; j++) {
+                // Smooth bridge should not reverse direction in Lab lightness and remain between anchors in RGB interpolation distance.
+                let prev = distance(seq[j - 1], seq[j]),
+                    next = distance(seq[j], seq[j + 1]);
+                if (prev < 0.01 || next < 0.01) continue;
+            }
+            let candidates = state.placements.map((c) => c.color);
+            let ideal = [0.25, 0.5, 0.75].map((t) => mix(state.targets[0], state.targets[1], t));
+            let cost = candidates.reduce((s, c, i) => s + distance(c, ideal[i]), 0);
+            let orderedCost = candidates.reduce((s, c, i) => s + distance(c, ideal[i]), 0);
+            let sorted = state.placements
+                .map((c) => c.color)
+                .sort((a, b) => {
+                    let da = distance(a, state.targets[0]),
+                        db = distance(b, state.targets[0]);
+                    return da - db;
+                });
+            let sortedCost = sorted.reduce((s, c, i) => s + distance(c, ideal[i]), 0);
+            monotonic = orderedCost <= sortedCost + 0.001;
+            if (monotonic) clearRound("Beautiful bridge! The cards progress from START to END.", 0);
+            else
+                fail(
+                    "The bridge colors are out of order. Rearrange the cards from closest to START to closest to END."
+                );
+        }
+        if (level === 4) {
+            if (state.placements.some((x) => !x))
+                return setFeedback("Fill all four open cells before validating.", "bad");
+            let grid = state.targets.slice();
+            [1, 3, 5, 7].forEach((idx, j) => (grid[idx] = state.placements[j].color));
+            let violations = [];
+            for (let r = 0; r < 3; r++)
+                for (let c = 0; c < 3; c++) {
+                    let i = r * 3 + c;
+                    if (c < 2 && distance(grid[i], grid[i + 1]) > 35)
+                        violations.push([i, i + 1, distance(grid[i], grid[i + 1])]);
+                    if (r < 2 && distance(grid[i], grid[i + 3]) > 35)
+                        violations.push([i, i + 3, distance(grid[i], grid[i + 3])]);
+                }
+            if (!violations.length) clearRound("Matrix accepted! Every adjacent transition is ΔE ≤ 35.", 0);
+            else
+                fail(
+                    `${violations.length} adjacent transition(s) exceed ΔE 35. Try replacing cards or changing formula.`
+                );
+        }
+    }
+    function fail(msg) {
+        state.failures++;
+        state.roundFailed = true;
+        state.score = Math.max(0, state.score - 5);
+        setFeedback(msg + " −5 points.", "bad");
+        stats();
+        renderResearch();
+    }
+    function clearRound(msg, delta) {
+        state.score += 100;
+        if (!state.roundFailed) state.score += 25;
+        if (state.roundReshuffles === 0) state.score += 25;
+        const visionMode = $("vision").value;
+        if (visionMode !== "normal") state.score += 25;
+        state.runLog.push({
+            level,
+            round: state.round,
+            score: state.score,
+            failures: state.failures,
+            reshuffles: state.reshuffles,
+            formula: $("formula").value,
+        });
+        state.revealed.push(state.mystery.replace("#", "")[state.round - 1]);
+        state.round++;
+        state.placements = [];
+        setFeedback(msg + (visionMode !== "normal" ? " +25 vision challenge bonus!" : ""), "good");
+        stats();
+        if (state.round > 6) {
+            setTimeout(renderFinal, 500);
+        } else {
+            setTimeout(setupRound, 650);
+        }
+    }
+    function renderFinal() {
+        state.finished = true;
+        let area = $("play-area");
+        area.innerHTML = `<div class="empty-state final-hex-prompt"><div class="big-emoji">✧･ﾟ: *✧</div><h2>Six rounds complete!</h2><p>Use the revealed hexadecimal code to identify the matching color.</p><div class="final-code" aria-label="Mystery hexadecimal code">${state.mystery}</div><p class="mini-note">Choose the matching swatch below. The mystery color itself is not shown here.</p></div>`;
+        let choices = [
+            state.mystery,
+            ...Array.from({ length: 3 }, () => {
+                let c;
+                do {
+                    c = randomHex();
+                } while (c === state.mystery);
+                return c;
+            }),
+        ].map((c) => makeCard(c));
+        shuffle(choices);
+        let lineup = document.createElement("div");
+        lineup.className = "choice-lineup";
+        choices.forEach((c) => {
+            let el = cardEl(c, { showHex: false });
+            el.setAttribute("aria-label", "Color option");
+            el.onclick = () => {
+                if (c.color === state.mystery) {
+                    state.score += 150;
+                    state.finished = true;
+                    state.finalChoice = c.color;
+                    let unlockedNow = level;
+                    try {
+                        unlockedNow = Math.max(level, Number(localStorage.getItem("dealtae-unlocked-level") || 1));
+                        if (level < 4) unlockedNow = Math.max(unlockedNow, level + 1);
+                        localStorage.setItem("dealtae-unlocked-level", String(Math.min(4, unlockedNow)));
+                    } catch (e) {}
+                    area.innerHTML = `<div class="empty-state"><div class="big-emoji">🏆</div><h2>Level complete!</h2><p>You identified the mystery color.</p><div class="target-swatch" style="background:${state.mystery}"></div><p><b>${state.mystery}</b></p><p>Final score: <b>${state.score}</b></p><div class="actions"><button class="button primary" onclick="location.href='${level === 4 ? "level1.html" : "level" + (level + 1) + ".html"}'">${level === 4 ? "Replay Level 1" : "Unlock Level " + (level + 1) + " →"}</button><a class="button secondary" href="index.html">Level menu</a></div><p class="mini-note">${level === 4 ? "You completed all four levels! You can replay any unlocked level from the menu." : "Level " + (level + 1) + " is now unlocked."}</p><p class="mini-note">Research summary: ${state.runLog.length} rounds · ${state.failures} failed checks · ${state.reshuffles} reshuffles · formula ${$("formula").value.toUpperCase()}.</p></div>`;
+                    setFeedback("Mystery color identified! +150 points.", "good");
+                    stats();
+                } else {
+                    state.failures++;
+                    state.score = Math.max(0, state.score - 5);
+                    el.style.opacity = ".35";
+                    el.disabled = true;
+                    setFeedback("Not quite — try another card. −5 points.", "bad");
+                    stats();
+                }
+            };
+            lineup.append(el);
+        });
+        area.append(lineup);
+        $("actions").style.display = "none";
+        stats();
+        showHexTutorialOnce();
+    }
+    function showHexTutorialOnce() {
+        let seen = false;
+        try {
+            seen = localStorage.getItem("dealtae-hex-tutorial-seen") === "yes";
+        } catch (e) {}
+        if (seen) return;
+        const overlay = document.createElement("div");
+        overlay.className = "hex-tutorial-backdrop";
+        overlay.setAttribute("role", "dialog");
+        overlay.setAttribute("aria-modal", "true");
+        overlay.setAttribute("aria-labelledby", "hex-tutorial-title");
+        overlay.innerHTML = `<section class="hex-tutorial-card"><button type="button" class="hex-tutorial-close" aria-label="Close tutorial">×</button><div class="section-label">COLOR SCIENCE MINI-LESSON</div><h2 id="hex-tutorial-title">How to read a hex code</h2><p>A six-digit hex code stores three color-channel values. Read the pairs from left to right:</p><div class="hex-tutorial-code"><span class="hex-hash">#</span><span class="hex-pair red-pair">RR</span><span class="hex-pair green-pair">GG</span><span class="hex-pair blue-pair">BB</span></div><svg class="hex-tutorial-arrows" viewBox="0 0 330 62" role="img" aria-label="Arrows connect each pair to its color channel"><defs><marker id="hex-arrowhead" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="currentColor"/></marker></defs><path d="M70 2 L55 43" stroke="#D94D70" stroke-width="2" fill="none" marker-end="url(#hex-arrowhead)"/><path d="M165 2 L165 43" stroke="#399C69" stroke-width="2" fill="none" marker-end="url(#hex-arrowhead)"/><path d="M260 2 L275 43" stroke="#527DDA" stroke-width="2" fill="none" marker-end="url(#hex-arrowhead)"/></svg><div class="hex-tutorial-labels"><div><b>RR · Red</b><span>First pair</span></div><div><b>GG · Green</b><span>Second pair</span></div><div><b>BB · Blue</b><span>Third pair</span></div></div><p class="mini-note">Each pair is a hexadecimal number from <b>00</b> to <b>FF</b>, representing a channel value from 0 to 255. For example, <b>FF</b> is 255 (maximum) and <b>00</b> is 0 (none).</p><button type="button" class="button primary hex-tutorial-done">Got it — let me solve it!</button></section>`;
+        document.body.append(overlay);
+        const close = () => {
+            overlay.remove();
+            try {
+                localStorage.setItem("dealtae-hex-tutorial-seen", "yes");
+            } catch (e) {}
+        };
+        overlay.querySelector(".hex-tutorial-close").addEventListener("click", close);
+        overlay.querySelector(".hex-tutorial-done").addEventListener("click", close);
+        overlay.addEventListener("click", (e) => {
+            if (e.target === overlay) close();
+        });
+    }
+    function resetPlacements() {
+        if (state.round > 6) return;
+        state.placements =
+            level === 1
+                ? [null]
+                : level === 2
+                  ? state.placements.map((c, i) => (state.lockedSlots[i] ? c : null))
+                  : level === 3
+                    ? [null, null, null]
+                    : [null, null, null, null];
+        state.selected = null;
+        renderRound();
+        setFeedback("Placements reset. Cards remain available.");
+        renderResearch();
+    }
+    function renderResearch() {
+        let panel = $("research-panel");
+        if (!panel) return;
+        let colors = state.targets.length ? state.targets : [randomHex()];
+        let c = state.selected ? cardById(state.selected) : state.placements.find(Boolean);
+        if (!c) c = state.discard[state.discard.length - 1];
+        if (!c) {
+            $("research-results").textContent = "Draw or place a card to compare distances.";
+            return;
+        }
+        let rows = colors.map(
+            (t, i) =>
+                `Target ${i + 1}: ΔE76 ${distance(c.color, t, "de76").toFixed(2)} · ΔE00 ${distance(c.color, t, "de00").toFixed(2)}`
+        );
+        $("research-results").innerHTML = `<b>Selected card ${c.color}</b><br>${rows.join("<br>")}`;
+        $("research-summary").textContent =
+            "Rankings can differ because ΔE76 and CIEDE2000 model color differences differently.";
+    }
+    function showModal(title, html) {
+        $("modal-content").innerHTML = `<h2>${title}</h2>${html}`;
+        $("modal").classList.add("visible");
+    }
+    $("validate").addEventListener("click", validate);
+    $("formula").addEventListener("change", renderResearch);
+    $("difficulty").addEventListener("change", () => {
+        if (state.round <= 6) setupRound();
+    });
+    const visionDescriptions = {
+        normal: "Normal view: colors are shown without a simulated vision change. No challenge bonus is awarded.",
+        protanopia:
+            "Protanopia: a simulation of a type of red-green color vision deficiency involving reduced sensitivity to long-wavelength (red) light.",
+        deuteranopia:
+            "Deuteranopia: a simulation of a type of red-green color vision deficiency involving reduced sensitivity to medium-wavelength (green) light.",
+        tritanopia:
+            "Tritanopia: a simulation of a less common blue-yellow color vision deficiency involving short-wavelength (blue) sensitivity.",
+        grayscale: "Grayscale: removes hue information, leaving differences in lightness and contrast.",
+    };
+    function updateVision() {
+        const mode = $("vision").value;
+        document.body.classList.remove(
+            "vis-normal",
+            "vis-protanopia",
+            "vis-deuteranopia",
+            "vis-tritanopia",
+            "vis-grayscale"
+        );
+        document.body.classList.add("vis-" + mode);
+        $("vision-description").textContent = visionDescriptions[mode];
+        $("vision-bonus").textContent =
+            mode === "normal"
+                ? "Normal view: no extra challenge bonus."
+                : "Challenge active: +25 points for every successfully completed round while this mode is selected.";
+        try {
+            localStorage.setItem("dealtae-vision", mode);
+        } catch (e) {}
+    }
+    $("vision").addEventListener("change", updateVision);
+    $("vision-toggle").addEventListener("click", () => {
+        const menu = $("vision-menu");
+        menu.hidden = !menu.hidden;
+        $("vision-toggle").setAttribute("aria-expanded", String(!menu.hidden));
+        if (!menu.hidden) updateVision();
+    });
+    $("research-toggle").addEventListener("click", () => {
+        $("research-panel").classList.toggle("visible");
+        $("research-toggle").setAttribute("aria-expanded", String($("research-panel").classList.contains("visible")));
+        renderResearch();
+    });
+    $("help-button").addEventListener("click", () =>
+        showModal(
+            "Color Science & Code Guide",
+            `<h3>What is ΔE?</h3><p>ΔE estimates the difference between two colors. ΔE76 is the Euclidean distance in CIELAB. CIEDE2000 (ΔE00) applies corrections intended to better reflect non-uniformities in perceived color difference.</p><h3>RGB and hexadecimal color codes</h3><p>A six-digit color code such as <b>#FF5E7E</b> stores three RGB channels: <b>FF</b> is red, <b>5E</b> is green, and <b>7E</b> is blue. The # marks the value as a color code; the six digits are grouped into three two-digit pairs.</p><p>Hexadecimal is base 16. It uses the symbols 0–9 and A–F, where A means 10, B means 11, and so on through F = 15. Each pair ranges from <b>00</b> to <b>FF</b>, equivalent to decimal 0–255. For example, <b>FF</b> is 15 × 16 + 15 = 255, while <b>2A</b> is 2 × 16 + 10 = 42. So #FF5E7E means red 255, green 94, blue 126.</p><p>RGB channels mix light: higher channel values mean more of that light component. The same hex code represents the same encoded RGB values, though displays and viewing conditions can affect how the color looks.</p><h3>Vision simulations</h3><p>The display modes approximate common color-vision differences. They do not model every person's experience and should not be used for diagnosis. Keep labels, keyboard controls, and other cues available in addition to color.</p><h3>Scoring</h3><p>Each cleared round earns 100 points, plus a 25-point first-try bonus and 25 points if the stock was not reshuffled during that round. Each reshuffle costs 10 points; failed validation costs 5.</p>`
+        )
+    );
+    $("close-modal").addEventListener("click", () => $("modal").classList.remove("visible"));
+    $("modal").addEventListener("click", (e) => {
+        if (e.target === $("modal")) $("modal").classList.remove("visible");
+    });
+    try {
+        let v = localStorage.getItem("dealtae-vision");
+        if (v && $("vision").querySelector(`[value="${v}"]`)) {
+            $("vision").value = v;
+            document.body.classList.add("vis-" + v);
+        }
+    } catch (e) {}
+    if ($("vision-description")) updateVision();
+    setupRound();
 })();
