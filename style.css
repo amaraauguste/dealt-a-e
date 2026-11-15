@@ -357,3 +357,8 @@ body:has(main.game-shell) { overflow:hidden; }
 .game-shell .delta-info-corner .research-panel p,.game-shell .delta-info-corner .research-results { font-size:.72rem; line-height:1.4; color:#f4d9f5; }
 .game-shell .controls-row { padding-right:110px; }
 @media(max-width:650px){.game-shell .delta-info-corner{top:5px;right:6px;max-width:52%}.game-shell .delta-info-corner #research-toggle{font-size:.64rem;padding:5px 8px}.game-shell .controls-row{padding-right:0;padding-top:30px}}
+/* Touch interaction: cards can be dragged without the page scrolling underneath. */
+.game-shell .color-card { touch-action:none; }
+.game-shell .return-pile { cursor:pointer; }
+.game-shell .return-pile:focus-visible { outline:3px solid #72f1ff; outline-offset:4px; }
+.touch-card-dragging { user-select:none; -webkit-user-select:none; }
