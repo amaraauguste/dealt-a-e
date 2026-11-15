@@ -1,1 +1,158 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DEALT-a-E — Level 2</title><link rel="stylesheet" href="style.css"></head><body class="vis-normal"><svg aria-hidden="true" width="0" height="0" style="position:absolute"><filter id="protanopia"><feColorMatrix type="matrix" values=".567 .433 0 0 0 .558 .442 0 0 0 0 .242 .758 0 0 0 0 0 1 0"/></filter><filter id="deuteranopia"><feColorMatrix type="matrix" values=".625 .375 0 0 0 .7 .3 0 0 0 0 .3 .7 0 0 0 0 0 1 0"/></filter><filter id="tritanopia"><feColorMatrix type="matrix" values=".95 .05 0 0 0 0 .433 .567 0 0 0 .475 .525 0 0 0 0 0 1 0"/></filter></svg><main class="game-shell" id="game" data-level="2"><header class="topbar"><a class="brand-mini" href="index.html">✦ <span>DEALT-a-E</span></a><div class="top-actions"><a class="small-button" href="index.html">← Level menu</a><button class="small-button" id="help-button">♡ Color guide</button></div></header><section class="game-heading"><div><h1>Level 2: Color Families</h1><p>Match the closest candidate to each of three targets.</p></div><div class="round-pill">Round <span id="round-label">1</span> / 6</div></section><div class="layout"><section class="board" id="board"><div class="controls-row"><label class="control-label" for="formula">Color difference</label><select id="formula"><option value="de76">ΔE76 · CIELAB</option><option value="de00">CIEDE2000 · ΔE00</option></select><label class="control-label" for="difficulty">Difficulty</label><select id="difficulty"><option value="easy">Easy</option><option value="standard" selected>Standard</option><option value="challenge">Challenge</option></select></div><div id="play-area"></div><div class="feedback" id="feedback" role="status" aria-live="polite"></div><div class="actions" id="actions"><button class="button primary" id="validate">Validate ✨</button></div></section><aside class="sidebar"><section class="sidebar-card"><div class="section-label">Mystery hex</div><div class="hex-chips" id="hex-chips"></div><div class="progress-track"><span id="progress-fill" style="width:0%"></span></div><p class="mini-note">Each cleared round reveals one character. Finish all six rounds to identify the color.</p></section><section class="sidebar-card"><div class="section-label">Run stats</div><div class="stat-line"><span>Score</span><b id="score">0</b></div><div class="stat-line"><span>Reshuffles</span><b id="reshuffles">0</b></div><div class="stat-line"><span>Failed checks</span><b id="failures">0</b></div><div class="stat-line"><span>Cards left</span><b id="stock-stat">0</b></div></section><section class="sidebar-card vision-card"><div class="vision-heading"><div class="section-label">Vision settings</div><button class="eye-button" id="vision-toggle" aria-expanded="false" aria-controls="vision-menu" aria-label="Open color vision simulation menu" title="Color vision settings"><svg viewBox="0 0 24 24" width="25" height="25" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div><p class="mini-note">Choose a viewing simulation to explore how color appearance may change.</p><div class="vision-menu" id="vision-menu" hidden><label class="control-label" for="vision">Viewing mode</label><select id="vision" style="width:100%;margin:8px 0"><option value="normal">Normal view · no simulation</option><option value="protanopia">Protanopia</option><option value="deuteranopia">Deuteranopia</option><option value="tritanopia">Tritanopia</option><option value="grayscale">Grayscale</option></select><div class="vision-description" id="vision-description" aria-live="polite">Normal view shows colors without a simulation.</div><div class="vision-bonus" id="vision-bonus">Choose a non-normal mode to activate the +25 points per successful round challenge bonus.</div><p class="mini-note">These are simplified simulations for learning and play, not exact representations of an individual's vision or a diagnostic tool.</p></div><button class="small-button" id="research-toggle" style="width:100%;margin-top:10px">Research comparison ▾</button><div class="research-panel" id="research-panel"><h3>Color comparison</h3><p>Numerical rankings are computed from the same candidate colors. This is an exploratory comparison, not a clinical vision test.</p><div id="research-results" class="research-results">Choose or place a card to compare distances.</div><p id="research-summary"></p></div></section><section class="sidebar-card"><div class="section-label">Scoring</div><p class="mini-note">Correct round +100 · First-try bonus +25 · No reshuffle bonus +25 · Each reshuffle −10 · Correct final color +150.</p><p class="mini-note">Drag cards or click a card, then click a slot. Keyboard users can Tab to a card and press Enter/Space.</p></section></aside></div></main><div class="modal-backdrop" id="modal"><section class="modal-card"><div class="close-row"><button class="small-button" id="close-modal">Close ×</button></div><div id="modal-content"></div></section></div><script src="game.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>DEALT-A-E — Level 2</title>
+        <link rel="stylesheet" href="style.css" />
+    </head>
+    <body class="vis-normal">
+        <svg aria-hidden="true" width="0" height="0" style="position: absolute">
+            <filter id="protanopia">
+                <feColorMatrix type="matrix" values=".567 .433 0 0 0 .558 .442 0 0 0 0 .242 .758 0 0 0 0 0 1 0" />
+            </filter>
+            <filter id="deuteranopia">
+                <feColorMatrix type="matrix" values=".625 .375 0 0 0 .7 .3 0 0 0 0 .3 .7 0 0 0 0 0 1 0" />
+            </filter>
+            <filter id="tritanopia">
+                <feColorMatrix type="matrix" values=".95 .05 0 0 0 0 .433 .567 0 0 0 .475 .525 0 0 0 0 0 1 0" />
+            </filter>
+        </svg>
+        <main class="game-shell" id="game" data-level="2">
+            <header class="topbar">
+                <a class="brand-mini" href="index.html">✦ <span>DEALT-A-E</span></a>
+                <div class="top-actions">
+                    <a class="small-button" href="index.html">← Level menu</a
+                    ><button class="small-button" id="help-button">♡ Color guide</button>
+                </div>
+            </header>
+            <section class="game-heading">
+                <div>
+                    <h1>Level 2: Color Families</h1>
+                    <p>Match the closest candidate to each of three targets.</p>
+                </div>
+                <div class="round-pill">Round <span id="round-label">1</span> / 6</div>
+            </section>
+            <div class="layout">
+                <section class="board" id="board">
+                    <div class="controls-row">
+                        <label class="control-label" for="formula">Color difference</label
+                        ><select id="formula">
+                            <option value="de76">ΔE76 · CIELAB</option>
+                            <option value="de00">CIEDE2000 · ΔE00</option></select
+                        ><label class="control-label" for="difficulty">Difficulty</label
+                        ><select id="difficulty">
+                            <option value="easy">Easy</option>
+                            <option value="standard" selected>Standard</option>
+                            <option value="challenge">Challenge</option>
+                        </select>
+                    </div>
+                    <div id="play-area"></div>
+                    <div class="feedback" id="feedback" role="status" aria-live="polite"></div>
+                    <div class="actions" id="actions">
+                        <button class="button primary" id="validate">Validate ✨</button>
+                    </div>
+                </section>
+                <aside class="sidebar">
+                    <section class="sidebar-card">
+                        <div class="section-label">Mystery hex</div>
+                        <div class="hex-chips" id="hex-chips"></div>
+                        <div class="progress-track"><span id="progress-fill" style="width: 0%"></span></div>
+                        <p class="mini-note">
+                            Each cleared round reveals one character. Finish all six rounds to identify the color.
+                        </p>
+                    </section>
+                    <section class="sidebar-card">
+                        <div class="section-label">Run stats</div>
+                        <div class="stat-line"><span>Score</span><b id="score">0</b></div>
+                        <div class="stat-line"><span>Reshuffles</span><b id="reshuffles">0</b></div>
+                        <div class="stat-line"><span>Failed checks</span><b id="failures">0</b></div>
+                        <div class="stat-line"><span>Cards left</span><b id="stock-stat">0</b></div>
+                    </section>
+                    <section class="sidebar-card vision-card">
+                        <div class="vision-heading">
+                            <div class="section-label">Vision settings</div>
+                            <button
+                                class="eye-button"
+                                id="vision-toggle"
+                                aria-expanded="false"
+                                aria-controls="vision-menu"
+                                aria-label="Open color vision simulation menu"
+                                title="Color vision settings"
+                            >
+                                <svg
+                                    viewBox="0 0 24 24"
+                                    width="25"
+                                    height="25"
+                                    aria-hidden="true"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="1.8"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                >
+                                    <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" />
+                                    <circle cx="12" cy="12" r="3" />
+                                </svg>
+                            </button>
+                        </div>
+                        <p class="mini-note">Choose a viewing simulation to explore how color appearance may change.</p>
+                        <div class="vision-menu" id="vision-menu" hidden>
+                            <label class="control-label" for="vision">Viewing mode</label
+                            ><select id="vision" style="width: 100%; margin: 8px 0">
+                                <option value="normal">Normal view · no simulation</option>
+                                <option value="protanopia">Protanopia</option>
+                                <option value="deuteranopia">Deuteranopia</option>
+                                <option value="tritanopia">Tritanopia</option>
+                                <option value="grayscale">Grayscale</option>
+                            </select>
+                            <div class="vision-description" id="vision-description" aria-live="polite">
+                                Normal view shows colors without a simulation.
+                            </div>
+                            <div class="vision-bonus" id="vision-bonus">
+                                Choose a non-normal mode to activate the +25 points per successful round challenge
+                                bonus.
+                            </div>
+                            <p class="mini-note">
+                                These are simplified simulations for learning and play, not exact representations of an
+                                individual's vision or a diagnostic tool.
+                            </p>
+                        </div>
+                        <button class="small-button" id="research-toggle" style="width: 100%; margin-top: 10px">
+                            Research comparison ▾
+                        </button>
+                        <div class="research-panel" id="research-panel">
+                            <h3>Color comparison</h3>
+                            <p>
+                                Numerical rankings are computed from the same candidate colors. This is an exploratory
+                                comparison, not a clinical vision test.
+                            </p>
+                            <div id="research-results" class="research-results">
+                                Choose or place a card to compare distances.
+                            </div>
+                            <p id="research-summary"></p>
+                        </div>
+                    </section>
+                    <section class="sidebar-card">
+                        <div class="section-label">Scoring</div>
+                        <p class="mini-note">
+                            Correct round +100 · First-try bonus +25 · No reshuffle bonus +25 · Each reshuffle −10 ·
+                            Correct final color +150.
+                        </p>
+                        <p class="mini-note">
+                            Drag cards or click a card, then click a slot. Keyboard users can Tab to a card and press
+                            Enter/Space.
+                        </p>
+                    </section>
+                </aside>
+            </div>
+        </main>
+        <div class="modal-backdrop" id="modal">
+            <section class="modal-card">
+                <div class="close-row"><button class="small-button" id="close-modal">Close ×</button></div>
+                <div id="modal-content"></div>
+            </section>
+        </div>
+        <script src="game.js"></script>
+    </body>
+</html>
